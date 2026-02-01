@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "ts-node src/index.ts",
+    "dev": "tsx src/index.ts",
     "start": "tsc && node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -16,6 +16,7 @@
     "@aws-sdk/client-s3": "^3.980.0",
     "@aws-sdk/s3-request-presigner": "^3.980.0",
     "@clerk/clerk-sdk-node": "^4.13.23",
+    "@gradio/client": "^2.0.4",
     "axios": "^1.13.4",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
@@ -29,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.1.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - LOCAL_AI_URL=http://ai-model:7860
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - ai-model
+
+  ai-model:
+    image: registry.hf.space/yisol-idm-vton:latest
+    ports:
+      - "7860:7860"
+    # Note: On Mac, we use linux/amd64 and Rosetta for compatibility
+    platform: linux/amd64
+    command: python app.py
+    # Optional: If you have Docker Desktop 4.34+ Beta with Virtio-GPU enabled,
+    # you can try adding GPU reservations here.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: apple
+              count: all
+              capabilities: [gpu]

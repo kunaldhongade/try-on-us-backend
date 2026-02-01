@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export interface ITryOn extends Document {
   clerkUserId: string;
+  userId?: mongoose.Types.ObjectId; // Reference to our internal User model
   productId: string;
   variantId?: string;
   shop: string;
@@ -13,6 +14,7 @@ export interface ITryOn extends Document {
 
 const TryOnSchema: Schema = new Schema({
   clerkUserId: { type: String, required: true, index: true },
+  userId: { type: Schema.Types.ObjectId, ref: "User" },
   productId: { type: String, required: true },
   variantId: { type: String },
   shop: { type: String, required: true },
