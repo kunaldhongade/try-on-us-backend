@@ -1,10 +1,13 @@
-import { Client } from "@gradio/client";
+import { client } from "@gradio/client";
 import dotenv from "dotenv";
 import { prepareImage } from "../utils/image.utils.js";
 import { uploadToS3 } from "../utils/s3.js";
 
 dotenv.config();
 
+/**
+ * HF_TOKEN should be your READ or WRITE token from Hugging Face Settings.
+ */
 const HF_TOKEN = process.env.HF_TOKEN;
 
 /**
@@ -28,7 +31,7 @@ export const runVirtualTryOn = async (
   try {
     const targetUrl = AI_URL;
     console.log(
-      `Starting AI Pipeline (Target: ${targetUrl}, Auth: ${HF_TOKEN ? "YES" : "NO"})...`,
+      `Starting AI Pipeline (Target: ${targetUrl}, Authenticated: ${HF_TOKEN ? "YES" : "NO"})...`,
     );
 
     // Stage 1: Preprocessing Person Image
@@ -59,37 +62,40 @@ export const runVirtualTryOn = async (
     console.log(`Connecting to AI: ${targetUrl}...`);
     let app;
     try {
-      // Clean token: Remove Bearer prefix if present
-      const cleanToken = HF_TOKEN
+      // THE DEFINITIVE FIX FROM OFFICIAL DOCS:
+      // 1. Use the 'client' factory function.
+      // 2. Use the 'token' key (NOT 'hf_token').
+      // 3. Pass the raw token string (no 'Bearer' prefix).
+      const rawToken = HF_TOKEN
         ? HF_TOKEN.replace("Bearer ", "").trim()
         : undefined;
 
-      app = await Client.connect(targetUrl, {
-        hf_token: IS_REMOTE ? (cleanToken as any) : undefined,
+      app = await client(targetUrl, {
+        token: IS_REMOTE ? (rawToken as any) : undefined,
       });
     } catch (connError: any) {
       console.error("Connection failed:", connError.message || connError);
-      throw new Error("AI Service Not Ready");
+      throw new Error("AI Service Not Ready (Connection Error)");
     }
 
     // Stage 4: Inference
     console.log(
-      `Calling ${IS_REMOTE ? "Remote" : "Local"} AI 'tryon' endpoint...`,
+      `Calling ${IS_REMOTE ? "Remote Hub" : "Local Docker"} AI 'tryon' endpoint...`,
     );
 
-    const result: any = await app.predict("/tryon", {
-      dict: {
+    const result: any = await app.predict("/tryon", [
+      {
         background: personBlob,
         layers: [],
         composite: null,
       },
-      garm_img: garmentBlob,
-      garment_des: garmentDescription,
-      is_checked: true,
-      is_checked_crop: false,
-      denoise_steps: 30,
-      seed: 42,
-    });
+      garmentBlob,
+      garmentDescription,
+      true, // is_checked (auto-crop)
+      true, // is_checked_crop (resizing)
+      30, // denoise_steps
+      42, // seed
+    ]);
 
     console.log("AI Result received.");
 
@@ -104,7 +110,14 @@ export const runVirtualTryOn = async (
 
     if (outputUrl) {
       console.log(`Downloading result from: ${outputUrl}`);
-      const response = await fetch(outputUrl);
+      // If it's a relative path from a space, we need to handle it.
+      // Most latest clients return full URLs, but we add a check for safety.
+      const finalDownloadUrl =
+        IS_REMOTE && outputUrl.startsWith("/")
+          ? `https://${targetUrl.replace("/", "-")}.hf.space/file=${outputUrl}`
+          : outputUrl;
+
+      const response = await fetch(finalDownloadUrl);
       const arrayBuffer = await response.arrayBuffer();
       resultBuffer = Buffer.from(arrayBuffer);
     } else if (outputData instanceof Blob) {
@@ -114,7 +127,7 @@ export const runVirtualTryOn = async (
       throw new Error("Unexpected result format from AI");
     }
 
-    console.log("Uploading result to S3...");
+    console.log("Uploading result to S3/Cloud...");
     const resultUrl = await uploadToS3(
       resultBuffer,
       `tryon-${Date.now()}.png`,
