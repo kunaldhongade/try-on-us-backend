@@ -1,24 +1,19 @@
 services:
-  backend:
-    build: .
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
-    environment:
-      - LOCAL_AI_URL=http://ai-model:7860
-    volumes:
-      - .:/app
-      - /app/node_modules
-    depends_on:
-      - ai-model
-
   ai-model:
     image: registry.hf.space/yisol-idm-vton:latest
     ports:
       - "7860:7860"
-    # Note: Using linux/amd64 and Rosetta for compatibility on Mac
     platform: linux/amd64
+    # Run as root to have full write access to the persistent volume
+    user: root
+    environment:
+      - HF_HUB_ENABLE_HF_TRANSFER=0
+      - HF_TOKEN=${HF_TOKEN}
+      - HF_HUB_READ_TIMEOUT=1000
+      - HF_HOME=/tmp/huggingface
+    volumes:
+      - hf_cache:/tmp/huggingface
     command: python app.py
-    # Removed experimental 'apple' gpu driver which caused the daemon error.
-    # The container will now start successfully on the CPU.
+
+volumes:
+  hf_cache:
