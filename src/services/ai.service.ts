@@ -9,7 +9,7 @@ dotenv.config();
  * AI_URL is strictly tied to the local Docker 'ai-model' service.
  * This ensures the backend only communicates with the local containerized AI.
  */
-const AI_URL = process.env.LOCAL_AI_URL || "http://ai-model:7860";
+const AI_URL = process.env.LOCAL_AI_URL || "http://host.docker.internal:7860";
 
 export interface AIResponse {
   imageUrl: string;

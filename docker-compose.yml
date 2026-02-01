@@ -17,15 +17,8 @@ services:
     image: registry.hf.space/yisol-idm-vton:latest
     ports:
       - "7860:7860"
-    # Note: On Mac, we use linux/amd64 and Rosetta for compatibility
+    # Note: Using linux/amd64 and Rosetta for compatibility on Mac
     platform: linux/amd64
     command: python app.py
-    # Optional: If you have Docker Desktop 4.34+ Beta with Virtio-GPU enabled,
-    # you can try adding GPU reservations here.
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: apple
-              count: all
-              capabilities: [gpu]
+    # Removed experimental 'apple' gpu driver which caused the daemon error.
+    # The container will now start successfully on the CPU.
