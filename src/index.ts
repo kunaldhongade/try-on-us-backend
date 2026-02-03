@@ -14,7 +14,8 @@ const REQUIRED_ENV = [
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
   "AWS_S3_BUCKET_NAME",
-  "HF_TOKEN",
+  "GCP_PROJECT_ID",
+  "GCP_LOCATION",
 ];
 
 const missingEnv = REQUIRED_ENV.filter(

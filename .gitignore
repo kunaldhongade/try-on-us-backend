@@ -3,6 +3,8 @@ node_modules
 # macOS
 .DS_Store
 
+google-credentials.json
+
 /.cache
 /build
 /app/build
@@ -14,7 +16,7 @@ node_modules
 database.sqlite
 
 .env
-.env.*
+.env.local
 
 
 

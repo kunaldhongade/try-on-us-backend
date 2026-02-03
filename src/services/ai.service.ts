@@ -1,27 +1,22 @@
-import { client } from "@gradio/client";
+import axios from "axios";
 import dotenv from "dotenv";
+import { GoogleAuth } from "google-auth-library";
 import { prepareImage } from "../utils/image.utils.js";
 import { uploadToS3 } from "../utils/s3.js";
 
 dotenv.config();
 
-/**
- * HF_TOKEN should be your READ or WRITE token from Hugging Face Settings.
- */
-const HF_TOKEN = process.env.HF_TOKEN;
-
-/**
- * AI_URL can be:
- * 1. A local/Docker endpoint: "http://localhost:7860"
- * 2. A remote Hugging Face Space: "yisol/IDM-VTON"
- */
-const AI_URL = process.env.LOCAL_AI_URL || "yisol/IDM-VTON";
-const IS_REMOTE = !AI_URL.startsWith("http");
+const PROJECT_ID = process.env.GCP_PROJECT_ID;
+const LOCATION = process.env.GCP_LOCATION || "us-central1";
 
 export interface AIResponse {
   imageUrl: string;
   status: "done" | "failed";
 }
+
+const auth = new GoogleAuth({
+  scopes: "https://www.googleapis.com/auth/cloud-platform",
+});
 
 export const runVirtualTryOn = async (
   personImage: Buffer,
@@ -29,16 +24,17 @@ export const runVirtualTryOn = async (
   garmentDescription: string,
 ): Promise<AIResponse> => {
   try {
-    const targetUrl = AI_URL;
+    if (!PROJECT_ID) {
+      throw new Error("GCP_PROJECT_ID is not configured");
+    }
+
     console.log(
-      `Starting AI Pipeline (Target: ${targetUrl}, Authenticated: ${HF_TOKEN ? "YES" : "NO"})...`,
+      `Starting Vertex AI Pipeline (Project: ${PROJECT_ID}, Location: ${LOCATION})...`,
     );
 
     // Stage 1: Preprocessing Person Image
     const processedPerson = await prepareImage(personImage);
-    const personBlob = new Blob([new Uint8Array(processedPerson)], {
-      type: "image/png",
-    });
+    const personBase64 = processedPerson.toString("base64");
 
     // Stage 2: Downloading and preparing Garment Image
     const fullGarmentUrl = garmentImageUrl.startsWith("//")
@@ -54,80 +50,69 @@ export const runVirtualTryOn = async (
     }
 
     const garmentArrayBuffer = await garmentResponse.arrayBuffer();
-    const garmentBlob = new Blob([new Uint8Array(garmentArrayBuffer)], {
-      type: "image/png",
+    const garmentBuffer = Buffer.from(garmentArrayBuffer);
+    const garmentBase64 = garmentBuffer.toString("base64");
+
+    // Stage 3: Get Auth Token
+    console.log(
+      "Getting Google Cloud auth token (using Application Default Credentials)...",
+    );
+    const client = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    const accessToken = tokenResponse.token;
+
+    if (!accessToken) {
+      throw new Error("Failed to get Google Cloud access token");
+    }
+
+    // Stage 4: Call Vertex AI API
+    const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/virtual-try-on-001:predict`;
+
+    const requestBody = {
+      instances: [
+        {
+          personImage: {
+            image: {
+              bytesBase64Encoded: personBase64,
+            },
+          },
+          productImages: [
+            {
+              image: {
+                bytesBase64Encoded: garmentBase64,
+              },
+            },
+          ],
+        },
+      ],
+      parameters: {
+        sampleCount: 1,
+      },
+    };
+
+    console.log(`Calling Vertex AI: ${url}...`);
+    const response = await axios.post(url, requestBody, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
     });
 
-    // Stage 3: Connect to AI Model
-    console.log(`Connecting to AI: ${targetUrl}...`);
-    let app;
-    try {
-      // THE DEFINITIVE FIX FROM OFFICIAL DOCS:
-      // 1. Use the 'client' factory function.
-      // 2. Use the 'token' key (NOT 'hf_token').
-      // 3. Pass the raw token string (no 'Bearer' prefix).
-      const rawToken = HF_TOKEN
-        ? HF_TOKEN.replace("Bearer ", "").trim()
-        : undefined;
+    console.log("Vertex AI Result received.");
 
-      app = await client(targetUrl, {
-        token: IS_REMOTE ? (rawToken as any) : undefined,
-      });
-    } catch (connError: any) {
-      console.error("Connection failed:", connError.message || connError);
-      throw new Error("AI Service Not Ready (Connection Error)");
+    const predictions = response.data.predictions;
+    if (!predictions || !predictions[0] || !predictions[0].bytesBase64Encoded) {
+      console.error(
+        "Vertex AI result empty or invalid:",
+        JSON.stringify(response.data, null, 2),
+      );
+      throw new Error("No output image from Vertex AI");
     }
 
-    // Stage 4: Inference
-    console.log(
-      `Calling ${IS_REMOTE ? "Remote Hub" : "Local Docker"} AI 'tryon' endpoint...`,
-    );
+    const resultBase64 = predictions[0].bytesBase64Encoded;
+    const resultBuffer = Buffer.from(resultBase64, "base64");
 
-    const result: any = await app.predict("/tryon", [
-      {
-        background: personBlob,
-        layers: [],
-        composite: null,
-      },
-      garmentBlob,
-      garmentDescription,
-      true, // is_checked (auto-crop)
-      true, // is_checked_crop (resizing)
-      30, // denoise_steps
-      42, // seed
-    ]);
-
-    console.log("AI Result received.");
-
-    if (!result.data || !result.data[0]) {
-      console.error("AI result empty:", JSON.stringify(result, null, 2));
-      throw new Error("No output image from AI");
-    }
-
-    const outputData = result.data[0];
-    let resultBuffer: Buffer;
-    const outputUrl = outputData.url || outputData.path;
-
-    if (outputUrl) {
-      console.log(`Downloading result from: ${outputUrl}`);
-      // If it's a relative path from a space, we need to handle it.
-      // Most latest clients return full URLs, but we add a check for safety.
-      const finalDownloadUrl =
-        IS_REMOTE && outputUrl.startsWith("/")
-          ? `https://${targetUrl.replace("/", "-")}.hf.space/file=${outputUrl}`
-          : outputUrl;
-
-      const response = await fetch(finalDownloadUrl);
-      const arrayBuffer = await response.arrayBuffer();
-      resultBuffer = Buffer.from(arrayBuffer);
-    } else if (outputData instanceof Blob) {
-      const arrayBuffer = await outputData.arrayBuffer();
-      resultBuffer = Buffer.from(arrayBuffer);
-    } else {
-      throw new Error("Unexpected result format from AI");
-    }
-
-    console.log("Uploading result to S3/Cloud...");
+    console.log("Uploading result to S3...");
     const resultUrl = await uploadToS3(
       resultBuffer,
       `tryon-${Date.now()}.png`,
@@ -136,7 +121,10 @@ export const runVirtualTryOn = async (
 
     return { imageUrl: resultUrl, status: "done" };
   } catch (error: any) {
-    console.error("AI Pipeline Error:", error.message || error);
+    console.error(
+      "AI Pipeline Error:",
+      error.response?.data || error.message || error,
+    );
     return { imageUrl: "", status: "failed" };
   }
 };
