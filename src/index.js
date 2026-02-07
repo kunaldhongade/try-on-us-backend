@@ -32,7 +32,8 @@ app.use(cors({
     ],
     methods: ["GET", "POST", "OPTIONS"],
 }));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Debug logger
 app.use((req, res, next) => {
     console.log(`\x1b[36m[${new Date().toISOString()}] ${req.method} ${req.url}\x1b[0m`);
@@ -117,7 +118,21 @@ app.get("/tryon-status/:id", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch status" });
     }
 });
-app.use(handleAuthError);
+// Global Error Handler
+app.use((err, req, res, next) => {
+    if (err.type === "entity.too.large") {
+        console.error(`Payload Error: Request body too large (${req.headers["content-length"]} bytes)`);
+        return res.status(413).json({
+            error: "Image too large",
+            message: "Please upload a smaller image or compressed version.",
+        });
+    }
+    console.error("System Error:", err.stack || err.message || err);
+    res.status(err.status || 500).json({
+        error: "Internal Server Error",
+        message: err.message,
+    });
+});
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });

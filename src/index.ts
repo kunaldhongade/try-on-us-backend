@@ -1,6 +1,6 @@
 import cors from "cors";
 import dotenv from "dotenv";
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import connectDB from "./config/db.js";
 import TryOn from "./models/TryOn.js";
@@ -48,7 +48,8 @@ app.use(
   }),
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Debug logger
 app.use((req, res, next) => {
@@ -162,7 +163,24 @@ app.get("/tryon-status/:id", async (req: Request, res: Response) => {
   }
 });
 
-app.use(handleAuthError);
+// Global Error Handler
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (err.type === "entity.too.large") {
+    console.error(
+      `Payload Error: Request body too large (${req.headers["content-length"]} bytes)`,
+    );
+    return res.status(413).json({
+      error: "Image too large",
+      message: "Please upload a smaller image or compressed version.",
+    });
+  }
+
+  console.error("System Error:", err.stack || err.message || err);
+  res.status(err.status || 500).json({
+    error: "Internal Server Error",
+    message: err.message,
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);

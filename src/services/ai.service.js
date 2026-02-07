@@ -31,7 +31,7 @@ export const runVirtualTryOn = async (personImage, garmentImageUrl, garmentDescr
         const garmentBuffer = Buffer.from(garmentArrayBuffer);
         const garmentBase64 = garmentBuffer.toString("base64");
         // Stage 3: Get Auth Token
-        console.log("Getting Google Cloud auth token...");
+        console.log("Getting Google Cloud auth token (using Application Default Credentials)...");
         const client = await auth.getClient();
         const tokenResponse = await client.getAccessToken();
         const accessToken = tokenResponse.token;

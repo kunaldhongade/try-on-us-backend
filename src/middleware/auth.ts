@@ -10,6 +10,13 @@ export const handleAuthError = (
   res: Response,
   next: NextFunction,
 ) => {
-  console.error("Clerk Auth Error:", err.message);
-  res.status(401).json({ error: "Unauthorized: Invalid or missing session" });
+  // Only handle specific Clerk/Auth errors here if possible,
+  // or let the global handler handle it.
+  if (err.status === 401 || err.name === "ClerkError") {
+    console.error("Clerk Auth Error:", err.message);
+    return res
+      .status(401)
+      .json({ error: "Unauthorized: Invalid or missing session" });
+  }
+  next(err);
 };
